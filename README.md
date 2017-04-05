@@ -52,22 +52,7 @@ ik_smart: 会做最粗粒度的拆分，比如会将“中华人民共和国国�
 1.create a index
 
 ```bash
-curl -XPUT http://localhost:9200/index -d'
-{
-    "settings": {
-        "analysis": {
-            "analyzer": {
-                "ik_max_word_dyn": {
-                "type": "ik_max_word",
-                "use_smart": true,
-                "enable_db_dict": true,
-                "enable_db_dict_log": true,
-                "db_dict_url": "jdbc:mysql://localhost:3306/elasticsearch?user=es_test&password=es_pwd&useUnicode=true&characterEncoding=UTF8"
-                }
-            }
-        }
-    }
-}'
+curl -XPUT http://localhost:9200/index
 ```
 
 2.create a mapping
@@ -77,16 +62,16 @@ curl -XPOST http://localhost:9200/index/fulltext/_mapping -d'
 {
     "fulltext": {
              "_all": {
-            "analyzer": "ik_max_word_dyn",
-            "search_analyzer": "ik_max_word_dyn",
+            "analyzer": "ik_max_word",
+            "search_analyzer": "ik_max_word",
             "term_vector": "no",
             "store": "false"
         },
         "properties": {
             "content": {
                 "type": "text",
-                "analyzer": "ik_max_word_dyn",
-                "search_analyzer": "ik_max_word_dyn",
+                "analyzer": "ik_max_word",
+                "search_analyzer": "ik_max_word",
                 "include_in_all": "true",
                 "boost": 8
             }
@@ -227,6 +212,55 @@ or `{plugins}/elasticsearch-analysis-ik-*/config/IKAnalyzer.cfg.xml`
 满足上面两点要求就可以实现热更新分词了，不需要重启 ES 实例。
 
 可以将需自动更新的热词放在一个 UTF-8 编码的 .txt 文件里，放在 nginx 或其他简易 http server 下，当 .txt 文件修改时，http server 会在客户端请求该文件时自动返回相应的 Last-Modified 和 ETag。可以另外做一个工具来从业务系统提取相关词汇，并更新这个 .txt 文件。
+
+### 使用数据库管理词库实现热更新
+在分析器配置时设置enable_db_dict参数和db_dict_url参数实现，数据库脚本见db_sql目录。
+
+1.create a index
+
+```bash
+curl -XPUT http://localhost:9200/index2 -d'
+{
+    "settings": {
+        "analysis": {
+            "analyzer": {
+                "ik_max_word_dyn": {
+                "type": "ik_max_word",
+                "use_smart": true,
+                "enable_db_dict": true,
+                "enable_db_dict_log": true,
+                "db_dict_url": "jdbc:mysql://localhost:3306/elasticsearch?user=es_test&password=es_pwd&useUnicode=true&characterEncoding=UTF8"
+                }
+            }
+        }
+    }
+}'
+```
+
+2.create a mapping
+
+```bash
+curl -XPOST http://localhost:9200/index2/fulltext2/_mapping -d'
+{
+    "fulltext2": {
+             "_all": {
+            "analyzer": "ik_max_word_dyn",
+            "search_analyzer": "ik_max_word_dyn",
+            "term_vector": "no",
+            "store": "false"
+        },
+        "properties": {
+            "content": {
+                "type": "text",
+                "analyzer": "ik_max_word_dyn",
+                "search_analyzer": "ik_max_word_dyn",
+                "include_in_all": "true",
+                "boost": 8
+            }
+        }
+    }
+}'
+```
 
 have fun.
 
