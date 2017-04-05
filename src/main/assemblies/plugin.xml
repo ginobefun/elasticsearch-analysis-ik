@@ -36,5 +36,13 @@
                 <include>org.apache.httpcomponents:httpclient</include>
             </includes>
         </dependencySet>
+        <dependencySet>
+            <outputDirectory>/</outputDirectory>
+            <useProjectArtifact>true</useProjectArtifact>
+            <useTransitiveFiltering>true</useTransitiveFiltering>
+            <includes>
+                <include>mysql:mysql-connector-java</include>
+            </includes>
+        </dependencySet>
     </dependencySets>
 </assembly>

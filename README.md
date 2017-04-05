@@ -52,7 +52,22 @@ ik_smart: 会做最粗粒度的拆分，比如会将“中华人民共和国国�
 1.create a index
 
 ```bash
-curl -XPUT http://localhost:9200/index
+curl -XPUT http://localhost:9200/index -d'
+{
+    "settings": {
+        "analysis": {
+            "analyzer": {
+                "ik_max_word_dyn": {
+                "type": "ik_max_word",
+                "use_smart": true,
+                "enable_db_dict": true,
+                "enable_db_dict_log": true,
+                "db_dict_url": "jdbc:mysql://localhost:3306/elasticsearch?user=es_test&password=es_pwd&useUnicode=true&characterEncoding=UTF8"
+                }
+            }
+        }
+    }
+}'
 ```
 
 2.create a mapping
@@ -62,16 +77,16 @@ curl -XPOST http://localhost:9200/index/fulltext/_mapping -d'
 {
     "fulltext": {
              "_all": {
-            "analyzer": "ik_max_word",
-            "search_analyzer": "ik_max_word",
+            "analyzer": "ik_max_word_dyn",
+            "search_analyzer": "ik_max_word_dyn",
             "term_vector": "no",
             "store": "false"
         },
         "properties": {
             "content": {
                 "type": "text",
-                "analyzer": "ik_max_word",
-                "search_analyzer": "ik_max_word",
+                "analyzer": "ik_max_word_dyn",
+                "search_analyzer": "ik_max_word_dyn",
                 "include_in_all": "true",
                 "boost": 8
             }

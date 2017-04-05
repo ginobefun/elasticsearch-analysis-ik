@@ -25,30 +25,25 @@
  */
 package org.wltea.analyzer.dic;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.logging.log4j.Logger;
 import org.elasticsearch.common.io.PathUtils;
 import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.plugin.analysis.ik.AnalysisIkPlugin;
 import org.wltea.analyzer.cfg.Configuration;
-import org.apache.logging.log4j.Logger;
+import org.wltea.analyzer.db.*;
+
+import java.io.*;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -136,33 +131,41 @@ public class Dictionary {
 		}
 		return null;
 	}
+
 	/**
 	 * 词典初始化 由于IK Analyzer的词典采用Dictionary类的静态方法进行词典初始化
 	 * 只有当Dictionary类被实际调用时，才会开始载入词典， 这将延长首次分词操作的时间 该方法提供了一个在应用加载阶段就初始化字典的手段
 	 * 
 	 * @return Dictionary
 	 */
-	public static synchronized Dictionary initial(Configuration cfg) {
+	public static synchronized Dictionary initial(Configuration cfg) throws Exception {
 		if (singleton == null) {
 			synchronized (Dictionary.class) {
 				if (singleton == null) {
-
 					singleton = new Dictionary(cfg);
-					singleton.loadMainDict();
-					singleton.loadSurnameDict();
-					singleton.loadQuantifierDict();
-					singleton.loadSuffixDict();
-					singleton.loadPrepDict();
-					singleton.loadStopWordDict();
 
-					if(cfg.isEnableRemoteDict()){
-						// 建立监控线程
-						for (String location : singleton.getRemoteExtDictionarys()) {
-							// 10 秒是初始延迟可以修改的 60是间隔时间 单位秒
-							pool.scheduleAtFixedRate(new Monitor(location), 10, 60, TimeUnit.SECONDS);
-						}
-						for (String location : singleton.getRemoteExtStopWordDictionarys()) {
-							pool.scheduleAtFixedRate(new Monitor(location), 10, 60, TimeUnit.SECONDS);
+					if(cfg.isEnableDBDict()) {
+						// 只从数据库加载词库
+						WordTypeVersionMgr wordTypeVersionMgr = new WordTypeVersionMgr(cfg.getDictDBUrl());
+						singleton.loadDictFromDB(wordTypeVersionMgr.getVersionMap());
+						pool.scheduleWithFixedDelay(new DBMonitor(wordTypeVersionMgr), cfg.getCheckDBInterval(), cfg.getCheckDBInterval(), TimeUnit.SECONDS);
+					}
+					else {
+						singleton.loadMainDict();
+						singleton.loadSurnameDict();
+						singleton.loadQuantifierDict();
+						singleton.loadSuffixDict();
+						singleton.loadPrepDict();
+						singleton.loadStopWordDict();
+						if(cfg.isEnableRemoteDict()){
+							// 建立监控线程
+							for (String location : singleton.getRemoteExtDictionarys()) {
+								// 10 秒是初始延迟可以修改的 60是间隔时间 单位秒
+								pool.scheduleAtFixedRate(new Monitor(location), 10, 60, TimeUnit.SECONDS);
+							}
+							for (String location : singleton.getRemoteExtStopWordDictionarys()) {
+								pool.scheduleAtFixedRate(new Monitor(location), 10, 60, TimeUnit.SECONDS);
+							}
 						}
 					}
 
@@ -761,4 +764,73 @@ public class Dictionary {
 		logger.info("重新加载词典完毕...");
 	}
 
+	public boolean reloadDBDict(final Map<WordType, Long> updateVersionMap) {
+		try {
+			logger.info("从数据库重新加载词典...");
+			// 新开一个实例加载词典，减少加载过程对当前词典使用的影响
+			Dictionary tmpDict = new Dictionary(configuration);
+			tmpDict.configuration = getSingleton().configuration;
+			tmpDict.reloadDBDict(updateVersionMap);
+
+			if(updateVersionMap.containsKey(WordType.MainWord)){
+				_MainDict = tmpDict._MainDict;
+			}
+			if(updateVersionMap.containsKey(WordType.StopWord)){
+				_StopWords = tmpDict._StopWords;
+			}
+			if(updateVersionMap.containsKey(WordType.SurnameWord)){
+				_SurnameDict = tmpDict._SurnameDict;
+			}
+			if(updateVersionMap.containsKey(WordType.QuantifierWord)){
+				_QuantifierDict = tmpDict._QuantifierDict;
+			}
+			if(updateVersionMap.containsKey(WordType.SuffixWord)){
+				_SuffixDict = tmpDict._SuffixDict;
+			}
+			if(updateVersionMap.containsKey(WordType.PrepositionWord)){
+				_PrepDict = tmpDict._PrepDict;
+			}
+
+			logger.info("从数据库重新加载词典完毕...");
+			return true;
+		}
+		catch (Exception e){
+			logger.error("从数据库重新加载词典失败!", e);
+			return false;
+		}
+	}
+
+	private void loadDictFromDB(final Map<WordType, Long> versionMap) {
+		this._MainDict = loadDictForWordType(WordType.MainWord, versionMap.getOrDefault(WordType.MainWord, 0L));
+		this._StopWords = loadDictForWordType(WordType.StopWord, versionMap.getOrDefault(WordType.StopWord, 0L));
+		this._SurnameDict = loadDictForWordType(WordType.SurnameWord, versionMap.getOrDefault(WordType.SurnameWord, 0L));
+		this._QuantifierDict = loadDictForWordType(WordType.QuantifierWord, versionMap.getOrDefault(WordType.QuantifierWord, 0L));
+		this._SuffixDict = loadDictForWordType(WordType.SuffixWord, versionMap.getOrDefault(WordType.SuffixWord, 0L));
+		this._PrepDict = loadDictForWordType(WordType.PrepositionWord, versionMap.getOrDefault(WordType.PrepositionWord, 0L));
+	}
+
+	private DictSegment loadDictForWordType(WordType wordType, long maxVersion){
+		DictSegment dictSegment = new DictSegment((char) 0);
+		if(wordType == null || maxVersion <= 0){
+			return dictSegment;
+		}
+
+		List<String> wordList = JDBCUtils.getDynWords(this.configuration.getDictDBUrl(), wordType, maxVersion);
+		if(wordList == null || wordList.isEmpty()){
+			if(this.configuration.isEnableDBDictLog()){
+				JDBCUtils.recordLog(this.configuration.getDictDBUrl(),
+						String.format("load dict failed, ip=%s, type=%s, maxVersion=%d", HostUtils.getIp(), wordType.name(), maxVersion));
+			}
+
+			return dictSegment;
+		}
+
+		wordList.stream().filter(word -> !word.trim().isEmpty()).forEach(word -> dictSegment.fillSegment(word.trim().toCharArray()));
+		if(this.configuration.isEnableDBDictLog()){
+			JDBCUtils.recordLog(this.configuration.getDictDBUrl(),
+					String.format("load dict succeed, ip= %s, type=%s, count=%d, maxVersion=%d", HostUtils.getIp(), wordType.name(), wordList.size(), maxVersion));
+		}
+
+		return dictSegment;
+	}
 }
