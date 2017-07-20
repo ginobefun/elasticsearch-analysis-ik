@@ -31,7 +31,7 @@ public final class JDBCUtils {
             String sql = "SELECT word_type WORD_TYPE, max(version) VERSION FROM es_word_def GROUP BY word_type";
             rs = stmt.executeQuery(sql);
             while (rs.next()) {
-                if ((wordType = WordType.fromCode(rs.getInt("VERSION"))) != null) {
+                if ((wordType = WordType.fromCode(rs.getInt("WORD_TYPE"))) != null) {
                     maxVersionMap.put(wordType, rs.getLong("VERSION"));
                 }
             }
