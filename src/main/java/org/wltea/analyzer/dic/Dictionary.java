@@ -770,7 +770,7 @@ public class Dictionary {
 			// 新开一个实例加载词典，减少加载过程对当前词典使用的影响
 			Dictionary tmpDict = new Dictionary(configuration);
 			tmpDict.configuration = getSingleton().configuration;
-			tmpDict.reloadDBDict(updateVersionMap);
+			tmpDict.loadDictFromDB(updateVersionMap);
 
 			if(updateVersionMap.containsKey(WordType.MainWord)){
 				_MainDict = tmpDict._MainDict;
